@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/thecodingmachine/gotenberg/internal/app/xhttp/pkg/context"
@@ -91,7 +92,7 @@ func mergeHandler(c echo.Context) error {
 			return err
 		}
 		p := printer.NewMergePrinter(logger, fpaths, opts)
-		return convert(ctx, p)
+		return convert(ctx, p, "pdf")
 	}
 	if err := resolver(); err != nil {
 		return xerror.New(op, err)
@@ -117,7 +118,7 @@ func htmlHandler(c echo.Context) error {
 			return err
 		}
 		p := printer.NewHTMLPrinter(logger, fpath, opts)
-		return convert(ctx, p)
+		return convert(ctx, p, opts.Extension)
 	}
 	if err := resolver(); err != nil {
 		return xerror.New(op, err)
@@ -151,7 +152,7 @@ func urlHandler(c echo.Context) error {
 			return err
 		}
 		p := printer.NewURLPrinter(logger, remoteURL, opts)
-		return convert(ctx, p)
+		return convert(ctx, p, "pdf")
 	}
 	if err := resolver(); err != nil {
 		return xerror.New(op, err)
@@ -180,7 +181,7 @@ func markdownHandler(c echo.Context) error {
 		if err != nil {
 			return err
 		}
-		return convert(ctx, p)
+		return convert(ctx, p, "pdf")
 	}
 	if err := resolver(); err != nil {
 		return xerror.New(op, err)
@@ -219,7 +220,7 @@ func officeHandler(c echo.Context) error {
 			return err
 		}
 		p := printer.NewOfficePrinter(logger, fpaths, opts)
-		return convert(ctx, p)
+		return convert(ctx, p, "pdf")
 	}
 	if err := resolver(); err != nil {
 		return xerror.New(op, err)
@@ -227,13 +228,13 @@ func officeHandler(c echo.Context) error {
 	return nil
 }
 
-func convert(ctx context.Context, p printer.Printer) error {
+func convert(ctx context.Context, p printer.Printer, e string) error {
 	const op string = "xhttp.convert"
 	resolver := func() error {
 		logger := ctx.XLogger()
 		r := ctx.MustResource()
 		baseFilename := xrand.Get()
-		filename := fmt.Sprintf("%s.pdf", baseFilename)
+		filename := fmt.Sprintf("%s.%s", baseFilename, e)
 		fpath := fmt.Sprintf("%s/%s", r.DirPath(), filename)
 		// if no webhook URL given, run conversion
 		// and directly return the resulting PDF file
@@ -336,7 +337,15 @@ func convertAsync(ctx context.Context, p printer.Printer, filename, fpath string
 			logger.ErrorOp(xerror.Op(xerr), xerr)
 			return
 		}
-		req.Header.Set(echo.HeaderContentType, "application/pdf")
+
+		if strings.HasSuffix(filename, "jpeg") {
+			req.Header.Set(echo.HeaderContentType, "image/jpeg")
+		} else if strings.HasSuffix(filename, "png") {
+			req.Header.Set(echo.HeaderContentType, "image/png")
+		} else {
+			req.Header.Set(echo.HeaderContentType, "application/pdf")
+		}
+
 		// set custom headers (if any).
 		customHTTPHeaders := resource.WebhookURLCustomHTTPHeaders(r)
 		if len(customHTTPHeaders) > 0 {

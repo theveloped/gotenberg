@@ -60,6 +60,10 @@ func chromePrinterOptions(r resource.Resource, config conf.Config) (printer.Chro
 		if err != nil {
 			return printer.ChromePrinterOptions{}, err
 		}
+		extension, err := resource.ExtensionArg(r, config)
+		if err != nil {
+			return printer.ChromePrinterOptions{}, err
+		}
 		return printer.ChromePrinterOptions{
 			WaitTimeout:       waitTimeout,
 			WaitDelay:         waitDelay,
@@ -76,6 +80,7 @@ func chromePrinterOptions(r resource.Resource, config conf.Config) (printer.Chro
 			RpccBufferSize:    googleChromeRpccBufferSize,
 			CustomHTTPHeaders: make(map[string]string),
 			Scale:             scale,
+			Extension:		   extension,
 		}, nil
 	}
 	opts, err := resolver()

@@ -60,6 +60,9 @@ const (
 	// ScaleArgKey is the key
 	// of the argument "scale".
 	ScaleArgKey ArgKey = "scale"
+	// ScaleArgKey is the key
+	// of the argument "scale".
+	ExtensionArgKey ArgKey = "extension"
 )
 
 /*
@@ -85,6 +88,7 @@ func ArgKeys() []ArgKey {
 		PageRangesArgKey,
 		GoogleChromeRpccBufferSizeArgKey,
 		ScaleArgKey,
+		ExtensionArgKey,
 	}
 }
 
@@ -311,6 +315,24 @@ func ScaleArg(r Resource, config conf.Config) (float64, error) {
 		opts.Scale,
 		xassert.Float64NotInferiorTo(0.1),
 		xassert.Float64NotSuperiorTo(2.0),
+	)
+	if err != nil {
+		return result, xerror.New(op, err)
+	}
+	return result, nil
+}
+
+/*
+ExtensionArg is a helper for retrieving
+the "extension" argument as a string.
+*/
+func ExtensionArg(r Resource, config conf.Config) (string, error) {
+	const op string = "resource.ExtensionArg"
+	opts := printer.DefaultChromePrinterOptions(config)
+	result, err := r.StringArg(
+		ExtensionArgKey, 
+		opts.Extension,
+		xassert.StringOneOf([]string{"pdf", "jpeg", "png"}),
 	)
 	if err != nil {
 		return result, xerror.New(op, err)

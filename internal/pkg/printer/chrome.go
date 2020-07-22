@@ -13,6 +13,7 @@ import (
 	"github.com/mafredri/cdp/protocol/network"
 	"github.com/mafredri/cdp/protocol/page"
 	"github.com/mafredri/cdp/protocol/target"
+	"github.com/mafredri/cdp/protocol/emulation"
 	"github.com/mafredri/cdp/rpcc"
 	"github.com/thecodingmachine/gotenberg/internal/pkg/conf"
 	"github.com/thecodingmachine/gotenberg/internal/pkg/xcontext"
@@ -46,6 +47,7 @@ type ChromePrinterOptions struct {
 	RpccBufferSize    int64
 	CustomHTTPHeaders map[string]string
 	Scale             float64
+	Extension		  string
 }
 
 // DefaultChromePrinterOptions returns the default
@@ -68,6 +70,7 @@ func DefaultChromePrinterOptions(config conf.Config) ChromePrinterOptions {
 		RpccBufferSize:    config.DefaultGoogleChromeRpccBufferSize(),
 		CustomHTTPHeaders: make(map[string]string),
 		Scale:             1.0,
+		Extension:		   "pdf",
 	}
 }
 
@@ -168,51 +171,97 @@ func (p chromePrinter) Print(destination string) error {
 		} else {
 			p.logger.DebugOp(op, "no wait delay to apply, moving on...")
 		}
-		printToPdfArgs := page.NewPrintToPDFArgs().
-			SetPaperWidth(p.opts.PaperWidth).
-			SetPaperHeight(p.opts.PaperHeight).
-			SetMarginTop(p.opts.MarginTop).
-			SetMarginBottom(p.opts.MarginBottom).
-			SetMarginLeft(p.opts.MarginLeft).
-			SetMarginRight(p.opts.MarginRight).
-			SetLandscape(p.opts.Landscape).
-			SetDisplayHeaderFooter(true).
-			SetHeaderTemplate(p.opts.HeaderHTML).
-			SetFooterTemplate(p.opts.FooterHTML).
-			SetPrintBackground(true).
-			SetScale(p.opts.Scale)
-		if p.opts.PageRanges != "" {
-			printToPdfArgs.SetPageRanges(p.opts.PageRanges)
-		}
-		// printToPDF the page to PDF.
-		printToPDF, err := targetClient.Page.PrintToPDF(
-			ctx,
-			printToPdfArgs,
-		)
-		if err != nil {
-			// find a way to check it in the handlers?
-			if strings.Contains(err.Error(), "Page range syntax error") {
-				return xerror.Invalid(
-					op,
-					fmt.Sprintf("'%s' is not a valid Google Chrome page ranges", p.opts.PageRanges),
-					err,
-				)
+
+		fmt.Sprintf("printing using extension: %s", p.opts.Extension)
+
+		if p.opts.Extension == "pdf" {
+			printToPdfArgs := page.NewPrintToPDFArgs().
+				SetPaperWidth(p.opts.PaperWidth).
+				SetPaperHeight(p.opts.PaperHeight).
+				SetMarginTop(p.opts.MarginTop).
+				SetMarginBottom(p.opts.MarginBottom).
+				SetMarginLeft(p.opts.MarginLeft).
+				SetMarginRight(p.opts.MarginRight).
+				SetLandscape(p.opts.Landscape).
+				SetDisplayHeaderFooter(true).
+				SetHeaderTemplate(p.opts.HeaderHTML).
+				SetFooterTemplate(p.opts.FooterHTML).
+				SetPrintBackground(true).
+				SetScale(p.opts.Scale)
+			if p.opts.PageRanges != "" {
+				printToPdfArgs.SetPageRanges(p.opts.PageRanges)
 			}
-			if strings.Contains(err.Error(), "rpcc: message too large") {
-				return xerror.Invalid(
-					op,
-					fmt.Sprintf(
-						"'%d' bytes are not enough: increase the Google Chrome rpcc buffer size (up to 100 MB)",
-						p.opts.RpccBufferSize,
-					),
-					err,
-				)
+			// printToPDF the page to PDF.
+			printToPDF, err := targetClient.Page.PrintToPDF(
+				ctx,
+				printToPdfArgs,
+			)
+			if err != nil {
+				// find a way to check it in the handlers?
+				if strings.Contains(err.Error(), "Page range syntax error") {
+					return xerror.Invalid(
+						op,
+						fmt.Sprintf("'%s' is not a valid Google Chrome page ranges", p.opts.PageRanges),
+						err,
+					)
+				}
+				if strings.Contains(err.Error(), "rpcc: message too large") {
+					return xerror.Invalid(
+						op,
+						fmt.Sprintf(
+							"'%d' bytes are not enough: increase the Google Chrome rpcc buffer size (up to 100 MB)",
+							p.opts.RpccBufferSize,
+						),
+						err,
+					)
+				}
+				return err
 			}
-			return err
+
+			if err := ioutil.WriteFile(destination, printToPDF.Data, 0600); err != nil {
+				return err
+			}
+
+		} else {
+			// Clear the currrent divice metrics
+			err = targetClient.Emulation.ClearDeviceMetricsOverride(ctx)
+
+			if err != nil {
+				return err
+			}
+
+			err = targetClient.Emulation.SetDeviceMetricsOverride(ctx,
+				&emulation.SetDeviceMetricsOverrideArgs{
+					Width:             int(p.opts.PaperWidth),
+					Height:            int(p.opts.PaperHeight),
+					DeviceScaleFactor: p.opts.Scale,
+					Mobile:            false})
+			if err != nil {
+				return err
+			}
+
+
+			screenshotArgs := page.NewCaptureScreenshotArgs().
+			SetFormat(p.opts.Extension).
+			SetClip(
+				page.Viewport{
+					X:      0,
+					Y:      0,
+					Width:  p.opts.PaperWidth,
+					Height: p.opts.PaperHeight,
+					Scale:  p.opts.Scale,
+				})
+
+			screenshot, err := targetClient.Page.CaptureScreenshot(ctx, screenshotArgs)
+			if err != nil {
+				return err
+			}
+
+			if err := ioutil.WriteFile(destination, screenshot.Data, 0600); err != nil {
+				return err
+			}
 		}
-		if err := ioutil.WriteFile(destination, printToPDF.Data, 0600); err != nil {
-			return err
-		}
+
 		return nil
 	}
 	if devtConnections < maxDevtConnections {
